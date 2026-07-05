@@ -132,6 +132,20 @@ body {
     transition: background var(--transition), color var(--transition);
 }
 
+body.theme-transition,
+body.theme-transition * {
+    transition-property: background-color, background, color, border-color, box-shadow, fill, stroke;
+    transition-duration: 240ms;
+    transition-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    body.theme-transition,
+    body.theme-transition * {
+        transition-duration: 0.01ms;
+    }
+}
+
 /* === 排版 === */
 h1,
 h2,
@@ -390,6 +404,7 @@ a:hover {
 
 /* === 进度条 === */
 .progress-bar-container {
+    display: none;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     padding: 12px 20px;

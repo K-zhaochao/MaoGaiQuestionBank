@@ -37,8 +37,12 @@ function findChapterForQuestion(questionId) {
 function resetChapter(chapterId) {
     const ch = QUESTION_BANK.chapters.find(c => c.id === chapterId);
     if (!ch) return;
-    ch.questions.forEach(q => delete APP.progress[q.id]);
+    ch.questions.forEach(q => {
+        delete APP.progress[q.id];
+        APP.expandedExplanations.delete(q.id);
+    });
     saveProgress(APP.progress);
+    saveExpandedState();
 }
 
 function resetAll() {
@@ -125,9 +129,6 @@ function navigate(view, params) {
     const progressBar = document.getElementById('progressBarContainer');
     if (view === 'chapter') {
         progressBar.style.display = 'block';
-    } else if (view === 'home') {
-        progressBar.style.display = 'block';
-        updateGlobalProgressBar();
     } else {
         progressBar.style.display = 'none';
     }
@@ -139,7 +140,6 @@ function navigate(view, params) {
         case 'home':
             document.getElementById('pageHome').classList.add('active');
             renderHome();
-            updateGlobalProgressBar();
             break;
         case 'chapter':
             document.getElementById('pageChapter').classList.add('active');
@@ -566,7 +566,7 @@ function renderSettings() {
 // ==================== 主题管理 ====================
 const THEME_KEY = 'maogai_theme';
 
-function setTheme(theme) {
+function legacySetTheme(theme) {
     document.querySelectorAll('.theme-btn').forEach(b => {
         const isActive = b.dataset.theme === theme;
         b.classList.toggle('active', isActive);
@@ -588,7 +588,7 @@ function setTheme(theme) {
     }
 }
 
-function initTheme() {
+function legacyInitTheme() {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved === 'dark') {
         document.body.classList.add('dark');
@@ -611,7 +611,7 @@ function initTheme() {
 }
 
 // 监听系统主题变化（仅在 auto 模式下生效）
-if (window.matchMedia) {
+if (false && window.matchMedia) {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
         const saved = localStorage.getItem(THEME_KEY);
         if (!saved || saved === 'auto') {
@@ -627,6 +627,71 @@ if (window.matchMedia) {
 }
 
 // ==================== 移动端菜单 ====================
+const systemThemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+
+function getStoredTheme() {
+    const saved = localStorage.getItem(THEME_KEY);
+    return saved === 'dark' || saved === 'light' ? saved : 'auto';
+}
+
+function getEffectiveTheme(theme) {
+    if (theme === 'dark' || theme === 'light') return theme;
+    return systemThemeQuery && systemThemeQuery.matches ? 'dark' : 'light';
+}
+
+function syncThemeButtons(theme) {
+    document.querySelectorAll('.theme-btn').forEach(b => {
+        const isActive = b.dataset.theme === theme;
+        b.classList.toggle('active', isActive);
+        b.setAttribute('aria-checked', isActive.toString());
+    });
+}
+
+function applyTheme(theme, animate) {
+    const effectiveTheme = getEffectiveTheme(theme);
+    if (animate) {
+        document.body.classList.add('theme-transition');
+        window.clearTimeout(applyTheme.transitionTimer);
+        applyTheme.transitionTimer = window.setTimeout(() => {
+            document.body.classList.remove('theme-transition');
+        }, 260);
+    }
+
+    document.body.classList.toggle('dark', effectiveTheme === 'dark');
+    document.body.classList.toggle('light', effectiveTheme === 'light');
+    document.documentElement.style.colorScheme = effectiveTheme;
+    syncThemeButtons(theme);
+}
+
+function setTheme(theme) {
+    if (theme === 'dark') {
+        localStorage.setItem(THEME_KEY, 'dark');
+    } else if (theme === 'light') {
+        localStorage.setItem(THEME_KEY, 'light');
+    } else {
+        theme = 'auto';
+        localStorage.removeItem(THEME_KEY);
+    }
+
+    applyTheme(theme, true);
+}
+
+function initTheme() {
+    applyTheme(getStoredTheme(), false);
+}
+
+if (systemThemeQuery) {
+    const handleSystemThemeChange = () => {
+        if (getStoredTheme() === 'auto') applyTheme('auto', true);
+    };
+
+    if (systemThemeQuery.addEventListener) {
+        systemThemeQuery.addEventListener('change', handleSystemThemeChange);
+    } else if (systemThemeQuery.addListener) {
+        systemThemeQuery.addListener(handleSystemThemeChange);
+    }
+}
+
 function toggleMobileMenu() {
     const dropdown = document.getElementById('mobileDropdown');
     const btn = document.getElementById('hamburgerBtn');
