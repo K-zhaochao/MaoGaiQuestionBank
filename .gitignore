@@ -6,8 +6,14 @@ node_modules/
 .idea/
 
 # AI / Skill / Template files (not part of the deployable website)
+.agents/
 .claude/
+.codex/
+.cursor/
+.continue/
 .moban/
+.windsurf/
+.aider*
 
 # OS files
 .DS_Store
