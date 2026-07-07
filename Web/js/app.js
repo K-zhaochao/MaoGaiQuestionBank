@@ -59,7 +59,12 @@ function getChapterProgress(chapterId) {
     if (!ch) return { done: 0, total: 0, correct: 0 };
     let done = 0, correct = 0;
     ch.questions.forEach(q => {
-        if (APP.progress[q.id]) { done++; if (APP.progress[q.id].correct) correct++; }
+        const s = APP.progress[q.id];
+        if (!s) return;
+        // 多选：只有 decided 为 true 的才算完成
+        if (q.type === 'multi' && s.decided !== true) return;
+        done++;
+        if (s.correct) correct++;
     });
     return { done, total: ch.questions.length, correct };
 }
@@ -69,7 +74,11 @@ function getTotalProgress() {
     QUESTION_BANK.chapters.forEach(ch => {
         ch.questions.forEach(q => {
             total++;
-            if (APP.progress[q.id]) { done++; if (APP.progress[q.id].correct) correct++; }
+            const s = APP.progress[q.id];
+            if (!s) return;
+            if (q.type === 'multi' && s.decided !== true) return;
+            done++;
+            if (s.correct) correct++;
         });
     });
     return { done, total, correct };
@@ -80,8 +89,12 @@ function getWrongAnswers(chapterId) {
     const wrong = [];
     chapters.forEach(ch => {
         ch.questions.forEach(q => {
-            if (APP.progress[q.id] && !APP.progress[q.id].correct) {
-                wrong.push({ ...q, chapterTitle: ch.title, chapterId: ch.id, userAnswer: APP.progress[q.id].answer });
+            const s = APP.progress[q.id];
+            if (!s) return;
+            // 判断/单选：!correct 即为错题；多选：decided && !correct
+            const isWrong = q.type === 'multi' ? (s.decided === true && !s.correct) : !s.correct;
+            if (isWrong) {
+                wrong.push({ ...q, chapterTitle: ch.title, chapterId: ch.id, userAnswer: s.answer });
             }
         });
     });
@@ -302,7 +315,8 @@ function renderQuestionCard(q) {
     const saved = APP.progress[q.id];
     const userAnswer = saved ? saved.answer : null;
     const isCorrect = saved ? saved.correct : null;
-    const showResult = saved !== undefined;
+    // 多选：只有 decided 才算有结果；判断/单选：有保存就算有结果
+    const showResult = q.type === 'multi' ? (saved && saved.decided === true) : (saved !== undefined);
     const expId = q.id + '-exp';
     const expanded = APP.expandedExplanations.has(q.id);
     
@@ -354,10 +368,10 @@ function renderQuestionCard(q) {
     } else if (q.type === 'multi') {
         answerHtml = `<ul class="options-list">`;
         const userAnswers = userAnswer ? userAnswer.split('') : [];
+        const correctLabels = q.answer.split('');
         q.options.forEach(opt => {
             let cls = 'option-item';
             if (userAnswers.includes(opt.label)) cls += ' selected';
-            const correctLabels = q.answer.split('');
             if (showResult && correctLabels.includes(opt.label)) cls += ' correct-answer';
             if (showResult && userAnswers.includes(opt.label) && !correctLabels.includes(opt.label)) cls += ' wrong-answer';
             answerHtml += `
@@ -409,15 +423,43 @@ function handleMultiAnswer(questionId, optionLabel) {
     const q = chapter.questions.find(q => q.id === questionId); if (!q) return;
     const saved = APP.progress[questionId];
     let currentAnswers = saved ? saved.answer.split('') : [];
-    currentAnswers = currentAnswers.includes(optionLabel)
-        ? currentAnswers.filter(a => a !== optionLabel)
-        : [...currentAnswers, optionLabel].sort();
-    const userAnswer = currentAnswers.join('');
-    const isCorrect = userAnswer === q.answer;
-    setUserAnswer(questionId, userAnswer, isCorrect);
-    if (isCorrect || currentAnswers.length >= q.answer.length) {
-        APP.expandedExplanations.add(questionId); saveExpandedState();
+    
+    // Toggle the clicked option
+    if (currentAnswers.includes(optionLabel)) {
+        currentAnswers = currentAnswers.filter(a => a !== optionLabel);
+    } else {
+        currentAnswers = [...currentAnswers, optionLabel].sort();
     }
+    
+    const userAnswer = currentAnswers.join('');
+    const correctLabels = q.answer.split('');
+    const allCorrectSelected = correctLabels.every(l => currentAnswers.includes(l));
+    const noWrongSelected = currentAnswers.every(l => correctLabels.includes(l));
+    const anySelected = currentAnswers.length > 0;
+    const isComplete = allCorrectSelected && noWrongSelected;
+    const hasWrong = anySelected && !noWrongSelected;
+    
+    // Store: only decide when all correct AND no wrong, OR when wrong selected
+    if (!anySelected) {
+        // All deselected — remove progress entirely
+        delete APP.progress[questionId];
+        saveProgress(APP.progress);
+        APP.expandedExplanations.delete(questionId); saveExpandedState();
+    } else if (hasWrong) {
+        APP.progress[questionId] = { answer: userAnswer, correct: false, decided: true, timestamp: Date.now() };
+        saveProgress(APP.progress);
+        APP.expandedExplanations.add(questionId); saveExpandedState();
+    } else if (isComplete) {
+        APP.progress[questionId] = { answer: userAnswer, correct: true, decided: true, timestamp: Date.now() };
+        saveProgress(APP.progress);
+        APP.expandedExplanations.add(questionId); saveExpandedState();
+    } else {
+        // Partial correct selection — pending, not decided
+        APP.progress[questionId] = { answer: userAnswer, decided: false, timestamp: Date.now() };
+        saveProgress(APP.progress);
+        APP.expandedExplanations.delete(questionId); saveExpandedState();
+    }
+    
     renderChapter(chapter.id); updateChapterProgressBar(chapter.id);
 }
 
